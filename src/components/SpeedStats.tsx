@@ -37,8 +37,8 @@ export function SpeedStats({ readings = [] }: SpeedStatsProps) {
 
   if (!fastest || !slowest) return null;
 
-  const pagesFast = fastest.pages_read || fastest.total_pages;
-  const pagesSlow = slowest.pages_read || slowest.total_pages;
+  const pagesFast = fastest.pages_read || fastest.book?.pages;
+  const pagesSlow = slowest.pages_read || slowest.book?.pages;
 
   const pagesPerDayFast = pagesFast ? (pagesFast / fastest.days).toFixed(1) : null;
   const pagesPerDaySlow = pagesSlow ? (pagesSlow / slowest.days).toFixed(1) : null;
@@ -52,7 +52,7 @@ export function SpeedStats({ readings = [] }: SpeedStatsProps) {
           </div>
           <div className="min-w-0">
             <p className="text-sm text-gray-500 dark:text-gray-400">Leitura mais rápida</p>
-            <p className="truncate font-semibold leading-tight">{fastest.title}</p>
+            <p className="truncate font-semibold leading-tight">{fastest.book?.title}</p>
             <p className="mt-1 text-xs text-gray-400">
               {fastest.days} dia(s){pagesPerDayFast ? ` · ${pagesPerDayFast} pág/dia` : ''}
             </p>
@@ -67,7 +67,7 @@ export function SpeedStats({ readings = [] }: SpeedStatsProps) {
           </div>
           <div className="min-w-0">
             <p className="text-sm text-gray-500 dark:text-gray-400">Leitura mais lenta</p>
-            <p className="truncate font-semibold leading-tight">{slowest.title}</p>
+            <p className="truncate font-semibold leading-tight">{slowest.book?.title}</p>
             <p className="mt-1 text-xs text-gray-400">
               {slowest.days} dia(s){pagesPerDaySlow ? ` · ${pagesPerDaySlow} pág/dia` : ''}
             </p>
