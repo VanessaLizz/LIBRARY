@@ -2,10 +2,13 @@ import { useMemo } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
 } from 'recharts';
-import { Book } from '@/lib/types';
+
+interface PriorityItem {
+  priority?: string | null;
+}
 
 interface PriorityChartProps {
-  books?: Book[];
+  books?: PriorityItem[];
 }
 
 const ORDER = ['alta', 'média', 'baixa'] as const;

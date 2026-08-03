@@ -12,6 +12,8 @@ export interface GoogleBook {
   isbn10?: string;
   isbn13?: string;
   coverUrl?: string;
+  asin?: string;
+  source?: string;
 }
 
 interface GoogleBooksVolumeInfo {
@@ -73,4 +75,27 @@ export async function searchByIsbn(isbn: string): Promise<GoogleBook | null> {
   const data = await res.json();
   if (!data.items || data.items.length === 0) return null;
   return mapItem(data.items[0]);
+}
+
+export async function searchByIdentifier(code: string): Promise<GoogleBook | null> {
+  // Simple check: ASINs usually start with B0 and are 10 chars, or just try general search for alphanumeric
+  const isAsin = /^[A-Z0-9]{10}$/.test(code) && !/^\d{10}$/.test(code);
+  
+  if (isAsin) {
+    const url = `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(code)}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('Falha ao buscar identificador');
+    const data = await res.json();
+    if (!data.items || data.items.length === 0) return null;
+    const book = mapItem(data.items[0]);
+    book.asin = code;
+    book.source = 'Google Books';
+    return book;
+  }
+
+  const book = await searchByIsbn(code);
+  if (book) {
+    book.source = 'Google Books';
+  }
+  return book;
 }

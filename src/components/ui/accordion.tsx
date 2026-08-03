@@ -13,7 +13,7 @@ interface AccordionProps {
   type?: 'single';
   collapsible?: boolean;
   className?: string;
-  defaultValue?: string;
+  defaultValue?: string | null;
 }
 
 export function Accordion({ children, className = '', defaultValue = null }: AccordionProps) {
