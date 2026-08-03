@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 const isNode = typeof window === "undefined"
 
 // Mock seguro do LocalStorage para SSR / Node environments

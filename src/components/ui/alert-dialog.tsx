@@ -17,7 +17,7 @@ export function AlertDialog({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function AlertDialogTrigger({ children, asChild }: { children: React.ReactNode; asChild?: boolean }) {
+export function AlertDialogTrigger({ children }: { children: React.ReactNode; asChild?: boolean }) {
   const ctx = useContext(AlertDialogContext);
   if (!ctx) return null;
 

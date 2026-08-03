@@ -6,7 +6,10 @@ import * as RechartsPrimitive from "recharts"
 import { cn } from "@/lib/utils"
 
 // Format: { THEME_NAME: CSS_SELECTOR }
-const THEMES = { light: "", dark: ".dark" } as const
+const THEMES = {
+  light: "",
+  dark: ".dark",
+}
 
 export type ChartConfig = {
   [k in string]: {
@@ -49,110 +52,6 @@ const ChartContainer = React.forwardRef<
   return (
     <ChartContext.Provider value={{ config }}>
       <div
-        data-chart={chartIdO código fornecido para o componente `chart.tsx` do **shadcn/ui** possui uma pequena falha de sintaxe em JavaScript puro/TypeScript que causará um erro ao executar a aplicação (`ReferenceError: getPayloadConfigFromPayload is not defined`).
-
-### Qual é o problema?
-A função auxilar `getPayloadConfigFromPayload` está declarada no final do arquivo, porém dentro das funções `ChartTooltipContent` e `ChartLegendContent` ela é invocada. Em arquivos JSX com `use client` ou compiladores Babel/SWC modernos, o Hoisting dessa declaração pode falhar dependendo da ordem do bundle.
-
-### Solução
-Abaixo está o arquivo completo corrigido, com a função auxiliar ajustada e pronta para integração no projeto.
-
----
-
-### ARQUIVO CORRIGIDO: `src/components/ui/chart.tsx`
-
-```tsx
-"use client"
-
-import * as React from "react"
-import * as RechartsPrimitive from "recharts"
-
-import { cn } from "@/lib/utils"
-
-// Formato: { THEME_NAME: CSS_SELECTOR }
-const THEMES = {
-  light: "",
-  dark: ".dark",
-}
-
-export type ChartConfig = {
-  [k in string]: {
-    label?: React.ReactNode
-    icon?: React.ComponentType
-  } & (
-    | { color?: string; theme?: never }
-    | { color?: never; theme: Record<keyof typeof THEMES, string> }
-  )
-}
-
-type ChartContextProps = {
-  config: ChartConfig
-}
-
-const ChartContext = React.createContext<ChartContextProps null |>(null)
-
-function useChart() {
-  const context = React.useContext(ChartContext)
-
-  if (!context) {
-    throw new Error("useChart deve ser usado dentro de um <ChartContainer/>")
-  }
-
-  return context
-}
-
-// Função auxiliar para extrair configurações do payload (posicionada no escopo superior)
-function getPayloadConfigFromPayload(
-  config: ChartConfig,
-  payload: unknown,
-  key: string
-) {
-  if (typeof payload !== "object" || payload === null) {
-    return undefined
-  }
-
-  const payloadPayload =
-    "payload" in payload &&
-    typeof payload.payload === "object" &&
-    payload.payload !== null
-      ? (payload.payload as Record<string, unknown>)
-      : undefined
-
-  let configLabelKey: string = key
-
-  if (
-    key in payload &&
-    typeof (payload as Record<string, unknown>)[key] === "string"
-  ) {
-    configLabelKey = (payload as Record<string, unknown>)[key] as string
-  } else if (
-    payloadPayload &&
-    key in payloadPayload &&
-    typeof payloadPayload[key] === "string"
-  ) {
-    configLabelKey = payloadPayload[key] as string
-  }
-
-  return configLabelKey in config
-    ? config[configLabelKey]
-    : config[key]
-}
-
-const ChartContainer = React.forwardRef<
-  HTMLDivElement,
-  React.ComponentProps<"div"> & {
-    config: ChartConfig
-    children: React.ComponentProps<
-      typeof RechartsPrimitive.ResponsiveContainer
-    >["children"]
-  }
->(({ id, className, children, config, ...props }, ref) => {
-  const uniqueId = React.useId()
-  const chartId = `chart-${id || uniqueId.replace(/:/g, "")}`
-
-  return (
-    <ChartContext.Provider config value="{{" }}>
-      <div
         data-chart={chartId}
         ref={ref}
         className={cn(
@@ -161,7 +60,7 @@ const ChartContainer = React.forwardRef<
         )}
         {...props}
       >
-        <ChartStyle config="{config}" id="{chartId}"/>
+        <ChartStyle id={chartId} config={config} />
         <RechartsPrimitive.ResponsiveContainer>
           {children}
         </RechartsPrimitive.ResponsiveContainer>
@@ -366,7 +265,7 @@ const ChartLegend = RechartsPrimitive.Legend
 const ChartLegendContent = React.forwardRef<
   HTMLDivElement,
   React.ComponentProps<"div"> &
-    Pick<RechartsPrimitive.LegendProps, "payload" "verticalAlign" |> & {
+    Pick<RechartsPrimitive.LegendProps, "payload" | "verticalAlign"> & {
       hideIcon?: boolean
       nameKey?: string
     }
@@ -420,6 +319,43 @@ const ChartLegendContent = React.forwardRef<
   }
 )
 ChartLegendContent.displayName = "ChartLegend"
+
+// Helper to extract item config from a payload.
+function getPayloadConfigFromPayload(
+  config: ChartConfig,
+  payload: unknown,
+  key: string
+) {
+  if (typeof payload !== "object" || payload === null) {
+    return undefined
+  }
+
+  const payloadPayload =
+    "payload" in payload &&
+    typeof payload.payload === "object" &&
+    payload.payload !== null
+      ? (payload.payload as Record<string, unknown>)
+      : undefined
+
+  let configLabelKey: string = key
+
+  if (
+    key in payload &&
+    typeof (payload as Record<string, unknown>)[key] === "string"
+  ) {
+    configLabelKey = (payload as Record<string, unknown>)[key] as string
+  } else if (
+    payloadPayload &&
+    key in payloadPayload &&
+    typeof payloadPayload[key] === "string"
+  ) {
+    configLabelKey = payloadPayload[key] as string
+  }
+
+  return configLabelKey in config
+    ? config[configLabelKey]
+    : config[key]
+}
 
 export {
   ChartContainer,

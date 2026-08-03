@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import { useState, useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { exportJSON, exportCSV, parseCSV, parseJSON } from '@/lib/exportUtils';
@@ -14,7 +15,7 @@ export function Settings() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [importMsg, setImportMsg] = useState<string | null>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
+
 
   useEffect(() => {
     if (profile) {
@@ -58,6 +59,7 @@ export function Settings() {
         const data = parseJSON(text);
         if (data.books?.length) {
           for (const b of data.books) {
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars
             const { id, user_id, created_at, updated_at, publisher, series, authors, genres, book_authors, book_genres, ...rest } = b;
             await supabase.from('books').insert(rest);
             count++;

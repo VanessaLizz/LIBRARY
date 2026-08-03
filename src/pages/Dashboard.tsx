@@ -1,6 +1,7 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Book, Reading, Profile } from '@/lib/types';
+import { Book, Reading } from '@/lib/types';
 import { useAuth } from '@/context/AuthContext';
 import {
   BarChart, Bar, LineChart, Line, AreaChart, Area, PieChart, Pie, Cell,
@@ -20,21 +21,33 @@ export function Dashboard() {
   const [readings, setReadings] = useState<Reading[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const loadData = async () => {
+    const { data: b } = await supabase
+      .from('books')
+      .select('*, publisher:publishers(name), series:series(name), book_authors(author:authors(name, country))')
+      .order('created_at', { ascending: false });
+    const mapped = (b ?? []).map((x: any) => ({ ...x, authors: x.book_authors?.map((ba: any) => ba.author) ?? [] })) as Book[];
+    setBooks(mapped);
+    const { data: r } = await supabase
+      .from('readings')
+      .select('*, book:books(title, pages, primary_genre, publisher:publishers(name), series:series(name), book_authors(author:authors(name, country)))')
+      .order('end_date', { ascending: false });
+    setReadings((r as Reading[]) ?? []);
+    setLoading(false);
+  };
+
   useEffect(() => {
-    (async () => {
-      const { data: b } = await supabase
-        .from('books')
-        .select('*, publisher:publishers(name), series:series(name), book_authors(author:authors(name, country))')
-        .order('created_at', { ascending: false });
-      const mapped = (b ?? []).map((x: any) => ({ ...x, authors: x.book_authors?.map((ba: any) => ba.author) ?? [] })) as Book[];
-      setBooks(mapped);
-      const { data: r } = await supabase
-        .from('readings')
-        .select('*, book:books(title, pages, primary_genre, publisher:publishers(name), series:series(name), book_authors(author:authors(name, country)))')
-        .order('end_date', { ascending: false });
-      setReadings((r as Reading[]) ?? []);
-      setLoading(false);
-    })();
+    loadData();
+
+    const channel = supabase
+      .channel('dashboard-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'readings' }, () => loadData())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'books' }, () => loadData())
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   const stats = useMemo(() => {

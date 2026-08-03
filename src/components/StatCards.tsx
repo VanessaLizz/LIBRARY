@@ -1,5 +1,5 @@
 import React from 'react';
-import { BookOpen, Library, FileText, Star, TrendingUp } from 'lucide-react';
+import { Library, FileText, Star, TrendingUp } from 'lucide-react';
 import { Reading } from '@/lib/types';
 
 interface StatCardProps {

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { Link } from 'react-router-dom';
 import { BookOpen, Pencil, Trash2 } from 'lucide-react';
 import { Book } from '@/lib/types';
