@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useLocation } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { Book, Reading } from '@/lib/types';
 import { useAuth } from '@/context/AuthContext';
@@ -17,11 +18,12 @@ const CHART_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#e
 
 export function Dashboard() {
   const { profile } = useAuth();
+  const location = useLocation();
   const [books, setBooks] = useState<Book[]>([]);
   const [readings, setReadings] = useState<Reading[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     const { data: b } = await supabase
       .from('books')
       .select('*, publisher:publishers(name), series:series(name), book_authors(author:authors(name, country))')
@@ -34,7 +36,7 @@ export function Dashboard() {
       .order('end_date', { ascending: false });
     setReadings((r as Reading[]) ?? []);
     setLoading(false);
-  };
+  }, []);
 
   useEffect(() => {
     loadData();
@@ -45,10 +47,16 @@ export function Dashboard() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'books' }, () => loadData())
       .subscribe();
 
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') loadData();
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
     return () => {
       supabase.removeChannel(channel);
+      document.removeEventListener('visibilitychange', handleVisibility);
     };
-  }, []);
+  }, [loadData, location.pathname]);
 
   const stats = useMemo(() => {
     const completed = readings.filter((r) => r.status === 'Concluído');

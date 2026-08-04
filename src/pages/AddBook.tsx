@@ -1,7 +1,9 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { searchBooks, searchByIdentifier, GoogleBook } from '@/lib/googleBooks';
+import { Book } from '@/lib/types';
 import {
   BookFormat,
   BookStatus,
@@ -112,6 +114,7 @@ export function AddBook() {
 
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<GoogleBook[]>([]);
+  const [dbResults, setDbResults] = useState<Book[]>([]);
   const [searching, setSearching] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -162,26 +165,62 @@ export function AddBook() {
 
   useEffect(() => {
     if (tab !== 'search') return;
+
     if (debounceRef.current) clearTimeout(debounceRef.current);
+
     if (!query.trim()) {
+      setDbResults([]);
       setResults([]);
       setSearching(false);
       return;
     }
+
     setSearching(true);
+
     debounceRef.current = setTimeout(async () => {
+      const q = query.trim();
+
+      // Busca no banco (RLS já filtra por user_id, mas filtramos explicitamente para garantir)
       try {
-        setResults(await searchBooks(query));
+        let dbQuery = supabase
+          .from('books')
+          .select('*, book_authors(author:authors(name))')
+          .ilike('title', `%${q}%`)
+          .order('title', { ascending: true })
+          .limit(20);
+
+        if (user?.id) {
+          dbQuery = dbQuery.eq('user_id', user.id) as typeof dbQuery;
+        }
+
+        const { data, error } = await dbQuery;
+        if (!error) {
+          setDbResults(
+            (data ?? []).map((b: any) => ({
+              ...b,
+              authors: b.book_authors?.map((ba: any) => ba.author) ?? [],
+            })) as Book[]
+          );
+        }
+      } catch {
+        setDbResults([]);
+      }
+
+      // Busca na API externa (Google Books com key, fallback Open Library)
+      try {
+        const apiResults = await searchBooks(q);
+        setResults(apiResults);
       } catch {
         setResults([]);
-      } finally {
-        setSearching(false);
       }
-    }, 400);
+
+      setSearching(false);
+    }, 500);
+
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [query, tab]);
+  }, [query, tab, user?.id]);
 
   const fillForm = (book: GoogleBook) => {
     const detectedIsbn10 = book.isbn10 ?? '';
@@ -271,9 +310,8 @@ export function AddBook() {
 
     try {
       const publicationDate = normalizePublicationDate(form.publication_date);
-      const startDate = safeDateValue(form.start_date);
-      const endDate = safeDateValue(form.end_date);
 
+      // ── 1. INSERT book (somente colunas que existem na tabela books) ──────────
       const { data: book, error: insertError } = await supabase
         .from('books')
         .insert({
@@ -290,13 +328,6 @@ export function AddBook() {
           asin: form.asin.trim() || null,
           pages: form.pages ? parseInt(form.pages, 10) : null,
           primary_genre: form.primary_genre || null,
-          secondary_genres: form.secondary_genres
-            ? form.secondary_genres
-              .split(',')
-              .map((g) => g.trim())
-              .filter(Boolean)
-            : [],
-          series: form.series.trim() || null,
           volume: form.volume ? parseInt(form.volume, 10) : null,
           publication_date: publicationDate || null,
           synopsis: form.synopsis.trim() || null,
@@ -307,13 +338,6 @@ export function AddBook() {
           format: form.format,
           status: form.status,
           ownership: form.ownership,
-          priority: form.priority || null,
-          rating: form.rating ? parseFloat(form.rating) : null,
-          target_year: form.target_year ? parseInt(form.target_year, 10) : null,
-          year_read: form.year_read ? parseInt(form.year_read, 10) : null,
-          start_date: startDate || null,
-          end_date: endDate || null,
-          notes: form.notes.trim() || null,
         })
         .select()
         .maybeSingle();
@@ -321,51 +345,86 @@ export function AddBook() {
       if (insertError) throw insertError;
       if (!book) throw new Error('Falha ao salvar o livro.');
 
+      // ── 2. Publisher → publishers + books.publisher_id ────────────────────────
       if (form.publisher.trim()) {
         const { data: pub } = await supabase
           .from('publishers')
           .upsert(
-            { name: form.publisher.trim() },
+            { user_id: user.id, name: form.publisher.trim() },
             { onConflict: 'user_id,name' }
           )
           .select()
           .maybeSingle();
-        if (pub) await supabase.from('books').update({ publisher_id: pub.id }).eq('id', book.id);
+        if (pub) {
+          await supabase.from('books').update({ publisher_id: pub.id }).eq('id', book.id);
+        }
       }
 
+      // ── 3. Série → series + books.series_id ──────────────────────────────────
       if (form.series.trim()) {
         const { data: ser } = await supabase
           .from('series')
           .upsert(
-            { name: form.series.trim() },
+            { user_id: user.id, name: form.series.trim() },
             { onConflict: 'user_id,name' }
           )
           .select()
           .maybeSingle();
-        if (ser) await supabase.from('books').update({ series_id: ser.id }).eq('id', book.id);
+        if (ser) {
+          await supabase.from('books').update({ series_id: ser.id }).eq('id', book.id);
+        }
       }
 
+      // ── 4. Autores → authors + book_authors ───────────────────────────────────
       for (const name of form.authors
         .split(',')
         .map((a) => a.trim())
         .filter(Boolean)) {
         const { data: author } = await supabase
           .from('authors')
-          .upsert({ name }, { onConflict: 'user_id,name' })
+          .upsert({ user_id: user.id, name }, { onConflict: 'user_id,name' })
           .select()
           .maybeSingle();
-        if (author)
+        if (author) {
           await supabase
             .from('book_authors')
             .insert({ book_id: book.id, author_id: author.id });
+        }
       }
 
-      const allGenres = [
-        form.primary_genre,
-        ...form.secondary_genres.split(',').map((g) => g.trim()),
-      ].filter(Boolean);
-      for (const g of allGenres) {
+      // ── 5. Gêneros adicionais → book_genres ───────────────────────────────────
+      const extraGenres = form.secondary_genres
+        .split(',')
+        .map((g) => g.trim())
+        .filter((g) => g && g !== form.primary_genre);
+      for (const g of extraGenres) {
         await supabase.from('book_genres').insert({ book_id: book.id, genre: g });
+      }
+
+      // ── 6. Dados de leitura → readings ────────────────────────────────────────
+      // Cria registro em readings sempre que o status indica leitura ativa ou concluída.
+      // Sem isso, livros marcados como "Concluído" não aparecem no histórico/Dashboard.
+      const startDate = safeDateValue(form.start_date);
+      const endDate = safeDateValue(form.end_date);
+      const shouldCreateReading = form.status !== 'Quero Ler';
+
+      if (shouldCreateReading) {
+        const pagesTotal = form.pages ? parseInt(form.pages, 10) : 0;
+        const isCompleted = form.status === 'Concluído';
+        await supabase.from('readings').insert({
+          book_id: book.id,
+          status: form.status,
+          format: form.format,
+          start_date: startDate || null,
+          end_date: endDate || null,
+          progress: isCompleted ? 100 : 0,
+          pages_read: isCompleted ? pagesTotal : 0,
+          pages_remaining: isCompleted ? 0 : pagesTotal,
+          rating: form.rating ? parseFloat(form.rating) : 0,
+          favorite: false,
+          reread: false,
+          review: form.notes.trim() || null,
+        });
       }
 
       navigate(`/book/${book.id}`);
@@ -433,52 +492,101 @@ export function AddBook() {
             </div>
           )}
 
-          {!searching && query.trim() && results.length === 0 && (
+          {!searching && query.trim() && dbResults.length === 0 && results.length === 0 && (
             <div className="card p-6 text-center text-sm text-gray-500">
               Nenhum livro encontrado.
             </div>
           )}
 
-          {results.length > 0 && (
-            <div className="space-y-3">
-              {results.map((book, index) => (
-                <button
-                  key={book.id ?? `${book.title}-${index}`}
-                  type="button"
-                  onClick={() => fillForm(book)}
-                  className="w-full card p-4 flex gap-4 text-left hover:border-brand-400 transition-colors"
-                >
-                  <div className="w-16 h-24 flex-shrink-0 rounded overflow-hidden bg-gray-100 dark:bg-slate-800">
-                    {book.coverUrl ? (
-                      <img
-                        src={book.coverUrl}
-                        alt={book.title}
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center">
-                        <BookPlus className="h-6 w-6 text-gray-400" />
+          {/* Resultados do banco (Na biblioteca) */}
+          {dbResults.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider px-1">Na sua biblioteca</p>
+              <div className="space-y-3">
+                {dbResults.map((book) => {
+                  const authorNames = (book.authors ?? []).map((a: any) =>
+                    typeof a === 'string' ? a : a?.name ?? ''
+                  ).filter(Boolean);
+                  return (
+                    <button
+                      key={book.id}
+                      type="button"
+                      onClick={() => {
+                        const asGoogleBook: GoogleBook = {
+                          id: book.id,
+                          title: book.title,
+                          subtitle: book.subtitle ?? undefined,
+                          authors: authorNames,
+                          publisher: (book.publisher as any)?.name ?? undefined,
+                          pageCount: book.pages ?? undefined,
+                          isbn10: book.isbn10 ?? undefined,
+                          isbn13: book.isbn13 ?? undefined,
+                          coverUrl: book.cover_url ?? undefined,
+                          description: book.synopsis ?? undefined,
+                          publishedDate: book.publication_date ?? undefined,
+                        };
+                        fillForm(asGoogleBook);
+                      }}
+                      className="w-full card p-4 flex gap-4 text-left hover:border-brand-400 transition-colors"
+                    >
+                      <div className="w-16 h-24 flex-shrink-0 rounded overflow-hidden bg-gray-100 dark:bg-slate-800">
+                        {book.cover_url ? (
+                          <img src={book.cover_url} alt={book.title} className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center">
+                            <BookPlus className="h-6 w-6 text-gray-400" />
+                          </div>
+                        )}
                       </div>
-                    )}
-                  </div>
-                  <div className="min-w-0">
-                    <h3 className="font-semibold">{book.title}</h3>
-                    {book.subtitle && (
-                      <p className="text-sm text-gray-500">{book.subtitle}</p>
-                    )}
-                    {book.authors && book.authors.length > 0 && (
-                      <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                        {book.authors.join(', ')}
-                      </p>
-                    )}
-                    {book.publisher && (
-                      <p className="text-xs text-gray-500 mt-1">
-                        {book.publisher}
-                      </p>
-                    )}
-                  </div>
-                </button>
-              ))}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-start justify-between gap-2">
+                          <h3 className="font-semibold">{book.title}</h3>
+                          <span className="shrink-0 text-xs bg-brand-100 text-brand-700 dark:bg-brand-900/40 dark:text-brand-300 px-2 py-0.5 rounded-full">Na biblioteca</span>
+                        </div>
+                        {book.subtitle && <p className="text-sm text-gray-500">{book.subtitle}</p>}
+                        {authorNames.length > 0 && <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{authorNames.join(', ')}</p>}
+                        {(book.publisher as any)?.name && <p className="text-xs text-gray-500 mt-1">{(book.publisher as any).name}</p>}
+                        {book.status && <p className="text-xs text-gray-400 mt-1">{book.status}</p>}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Resultados da API (Google Books) */}
+          {results.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider px-1">Resultados externos</p>
+              <div className="space-y-3">
+                {results.map((book, index) => (
+                  <button
+                    key={book.id ?? `${book.title}-${index}`}
+                    type="button"
+                    onClick={() => fillForm(book)}
+                    className="w-full card p-4 flex gap-4 text-left hover:border-brand-400 transition-colors"
+                  >
+                    <div className="w-16 h-24 flex-shrink-0 rounded overflow-hidden bg-gray-100 dark:bg-slate-800">
+                      {book.coverUrl ? (
+                        <img src={book.coverUrl} alt={book.title} className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center">
+                          <BookPlus className="h-6 w-6 text-gray-400" />
+                        </div>
+                      )}
+                    </div>
+                    <div className="min-w-0">
+                      <h3 className="font-semibold">{book.title}</h3>
+                      {book.subtitle && <p className="text-sm text-gray-500">{book.subtitle}</p>}
+                      {book.authors && book.authors.length > 0 && (
+                        <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{book.authors.join(', ')}</p>
+                      )}
+                      {book.publisher && <p className="text-xs text-gray-500 mt-1">{book.publisher}</p>}
+                    </div>
+                  </button>
+                ))}
+              </div>
             </div>
           )}
         </div>
@@ -810,34 +918,30 @@ export function AddBook() {
 
             <div>
               <label className="label">Ano Meta</label>
-              <input
-                type="number"
-                min="1000"
-                max="9999"
-                placeholder="Ex: 2026"
+              <select
                 className="input"
                 value={form.target_year}
-                onChange={(e) => {
-                  const v = e.target.value.slice(0, 4);
-                  setForm({ ...form, target_year: v });
-                }}
-              />
+                onChange={(e) => setForm({ ...form, target_year: e.target.value })}
+              >
+                <option value="">— Selecione —</option>
+                {Array.from({ length: new Date().getFullYear() - 1899 + 2 }, (_, i) => new Date().getFullYear() + 2 - i).map((y) => (
+                  <option key={y} value={String(y)}>{y}</option>
+                ))}
+              </select>
             </div>
 
             <div>
               <label className="label">Ano de Leitura</label>
-              <input
-                type="number"
-                min="1000"
-                max="9999"
-                placeholder="Ex: 2026"
+              <select
                 className="input"
                 value={form.year_read}
-                onChange={(e) => {
-                  const v = e.target.value.slice(0, 4);
-                  setForm({ ...form, year_read: v });
-                }}
-              />
+                onChange={(e) => setForm({ ...form, year_read: e.target.value })}
+              >
+                <option value="">— Selecione —</option>
+                {Array.from({ length: new Date().getFullYear() - 1899 + 2 }, (_, i) => new Date().getFullYear() + 2 - i).map((y) => (
+                  <option key={y} value={String(y)}>{y}</option>
+                ))}
+              </select>
             </div>
 
             <div>
